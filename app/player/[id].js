@@ -259,11 +259,10 @@ function PlayerInner({ entry }) {
 
   const [activeIndex, setActiveIndex] = useState(0);
   const [repeatLine, setRepeatLine] = useState(false);
-  const lastRepeatRef = useRef(-1);
 
+  // Reset activeIndex when cues change.
   useEffect(() => {
     setActiveIndex(0);
-    lastRepeatRef.current = -1;
   }, [cues.length]);
 
   const positionMs = Math.floor((status?.currentTime ?? 0) * 1000);
@@ -273,25 +272,36 @@ function PlayerInner({ entry }) {
 
     const idx = findCueIndex(cues, positionMs);
 
+    // --- REPEAT LINE LOGIC ---
+    // This section must be before setActiveIndex update, as it relies on the *current* activeIndex.
+    if (repeatLine) {
+      const currentCue = cues[activeIndex]; // Use the *current* activeIndex to identify the cue to repeat.
+      // Condition:
+      // 1. We are in repeat mode.
+      // 2. The current cue exists.
+      // 3. The current audio position is near the end of the current cue.
+      // 4. The 'idx' calculated from 'positionMs' is *still* the same as 'activeIndex'.
+      //    This ensures we haven't advanced to the *next* cue yet.
+      if (currentCue && idx === activeIndex && positionMs >= currentCue.endMs - 275) {
+        // Found the end of the current cue, and we are still on this cue.
+        // Seek back to the start of this cue and play.
+        player.seekTo(currentCue.startMs / 1000);
+        player.play();
+        // Return early to prevent the activeIndex from updating immediately in the same render.
+        // This gives the player time to seek and play, and prevents state conflicts.
+        return;
+      }
+    }
+    // --- END REPEAT LINE LOGIC ---
+
+
+    // Update active index and scroll if the cue has actually changed.
     if (idx !== activeIndex) {
       setActiveIndex(idx);
       scrollRef.current?.scrollTo({
         y: Math.max(0, idx * 72 - 120),
         animated: true,
       });
-    }
-
-    if (repeatLine) {
-      const c = cues[idx];
-      if (!c) return;
-
-      if (positionMs >= c.endMs - 40 && lastRepeatRef.current !== c.index) {
-        lastRepeatRef.current = c.index;
-        player.seekTo(c.startMs / 1000);
-        player.play();
-      }
-    } else {
-      lastRepeatRef.current = -1;
     }
   }, [positionMs, cues, repeatLine, activeIndex, player]);
 
